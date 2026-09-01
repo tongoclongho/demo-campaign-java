@@ -25,11 +25,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * {@link RedisServiceHelper} against a real Redis container — mocking StringRedisTemplate here would
- * assert our assumptions rather than Redis's behaviour, which is where the bugs live.
- * See docs/test_plan_service.md (RS-*).
- */
 class RedisServiceHelperTest extends AbstractRedisTest {
 
     private static final Long CAMPAIGN_ID = 7L;
@@ -62,10 +57,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
                 .build();
     }
 
-    // ---------------------------------------------------------------------
-    // RS-1 requireUserNotInCampaignMembers
-    // ---------------------------------------------------------------------
-
     @Test
     void requireUserNotInCampaignMembers_with_existing_member_then_throws() {
         // Arrange
@@ -91,9 +82,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertDoesNotThrow(() -> redisServiceHelper.requireUserNotInCampaignMembers(1L, CAMPAIGN_ID));
     }
 
-    // ---------------------------------------------------------------------
-    // RS-2 requireCampaignAvailableSeats
-    // ---------------------------------------------------------------------
 
     @Test
     void requireCampaignAvailableSeats_with_missing_key_then_throws() {
@@ -130,13 +118,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertDoesNotThrow(() -> redisServiceHelper.requireCampaignAvailableSeats(CAMPAIGN_ID));
     }
 
-    // ---------------------------------------------------------------------
-    // RS-3 / RS-4 sendClaimToPriorityQueue
-    // ---------------------------------------------------------------------
-
-    /**
-     * RS-3 — both keys are written: the per-campaign ZSET and the id-set the job scans.
-     */
     @Test
     void sendClaimToPriorityQueue_then_writes_zset_member_and_registers_campaign_id() {
         // Act
@@ -150,10 +131,7 @@ class RedisServiceHelperTest extends AbstractRedisTest {
                 CAMPAIGN_ID.toString()));
     }
 
-    /**
-     * RS-4 — the score is inverted ({@code Long.MAX_VALUE - epochMilli}) so that {@code ZPOPMAX}
-     * yields the earliest claim first. This is the fairness property of the whole pipeline.
-     */
+
     @Test
     void sendClaimToPriorityQueue_with_two_claims_then_earlier_claim_scores_higher() {
         // Arrange
@@ -173,9 +151,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertEquals("10#1", popped.getValue());
     }
 
-    // ---------------------------------------------------------------------
-    // RS-5 reserveCampaignSeat
-    // ---------------------------------------------------------------------
 
     @Test
     void reserveCampaignSeat_with_one_seat_left_then_returns_zero() {
@@ -190,11 +165,7 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertEquals("0", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    /**
-     * RS-5 — documents the overshoot: the DECR happens before the result is checked, so a failed
-     * reservation still leaves the counter one lower. Only the 60s refresh corrects it.
-     * See docs/test_plan_service.md "Known gaps" (3).
-     */
+
     @Test
     void reserveCampaignSeat_with_no_seats_left_then_empty_and_counter_overshoots() {
         // Arrange
@@ -208,10 +179,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertEquals("-1", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    // ---------------------------------------------------------------------
-    // RS-6 addUserToCampaignMembers
-    // ---------------------------------------------------------------------
-
     @Test
     void addUserToCampaignMembers_then_first_call_wins_and_duplicate_is_empty() {
         // Act
@@ -223,10 +190,6 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertTrue(second.isEmpty());
         assertEquals(1L, redisTemplate.opsForSet().size(membersKey()));
     }
-
-    // ---------------------------------------------------------------------
-    // RS-7 getCampaignIdsForClaimCheck
-    // ---------------------------------------------------------------------
 
     @Test
     void getCampaignIdsForClaimCheck_then_returns_ids_and_drains_the_set() {
@@ -250,13 +213,8 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertTrue(ids.isEmpty());
     }
 
-    // ---------------------------------------------------------------------
-    // RS-8 / RS-9 refresh
-    // ---------------------------------------------------------------------
 
-    /**
-     * RS-8 — an empty recomputed member list must delete the key, not leave stale members behind.
-     */
+
     @Test
     void refreshCampaignMembersCache_with_empty_ids_then_key_deleted() {
         // Arrange
@@ -278,10 +236,7 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertThat(redisTemplate.opsForSet().members(membersKey())).containsExactlyInAnyOrder("1", "2");
     }
 
-    /**
-     * RS-9 — the refresh takes {@code max(current, recomputed)} so it cannot clobber an in-flight
-     * decrement with a stale higher value.
-     */
+
     @Test
     void refreshCampaignAvailableSeatsCache_with_lower_recomputed_value_then_keeps_current() {
         // Arrange
@@ -315,14 +270,7 @@ class RedisServiceHelperTest extends AbstractRedisTest {
         assertEquals("4", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    // ---------------------------------------------------------------------
-    // RS-10 refresh methods swallow failures
-    // ---------------------------------------------------------------------
 
-    /**
-     * RS-10 — both refresh methods log and continue, so one broken campaign cannot abort the whole
-     * 60s reconciliation sweep. Uses a failing template rather than the container.
-     */
     @Test
     void refresh_methods_with_failing_template_then_no_exception_escapes() {
         // Arrange

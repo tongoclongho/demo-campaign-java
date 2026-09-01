@@ -33,13 +33,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * {@code processClaimCheck} / {@code executeClaimCampaignSubmission} against a real Redis container —
- * the ordering guarantee under test is {@code ZPOPMAX} semantics, which a mocked template cannot
- * reproduce. Postgres collaborators stay mocked. See docs/test_plan_service.md (CL-J*).
- *
- * <p>Lives in {@code com.demo.campaign.service} because the job methods are {@code protected}.
- */
+
 class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
 
     private static final Long CAMPAIGN_ID = 7L;
@@ -67,7 +61,6 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         ReflectionTestUtils.setField(claimCampaignService, "batchSize", 100L);
     }
 
-    // --- fixtures --------------------------------------------------------
 
     private static String zsetKey(Long campaignId) {
         return AppConstants.CLAIM_CAMPAIGN_PRIORITY_ZSET + campaignId;
@@ -77,7 +70,6 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         redisTemplate.opsForValue().set(AppConstants.CAMPAIGN_AVAILABLE_SEATS + campaignId, String.valueOf(seats));
     }
 
-    /** Enqueues through the production path and registers a matching SUBMITTED row. */
     private void givenQueuedClaim(Long campaignId, Long userId, int points, LocalDateTime claimDate) {
         givenClaimRow(campaignId, userId, claimDate);
         redisServiceHelper.sendClaimToPriorityQueue(ClaimSubmissionDTO.builder()
@@ -88,7 +80,6 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
                 .build());
     }
 
-    /** Enqueues without a backing row — reproduces the CL-P5 conditions. */
     private void givenQueuedClaimWithoutRow(Long campaignId, Long userId, int points, LocalDateTime claimDate) {
         redisServiceHelper.sendClaimToPriorityQueue(ClaimSubmissionDTO.builder()
                 .campaignId(campaignId)
@@ -107,7 +98,6 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
                 .build());
     }
 
-    /** Writes a raw ZSET member, bypassing the serialization in RedisServiceHelper. */
     private void givenRawQueuedValue(Long campaignId, String value, LocalDateTime claimDate) {
         redisTemplate.opsForZSet().add(zsetKey(campaignId), value,
                 Long.MAX_VALUE - claimDate.toInstant(ZoneOffset.UTC).toEpochMilli());
@@ -120,11 +110,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
                 .collect(Collectors.toMap(ClaimCampaign::getUserId, Function.identity()));
     }
 
-    // ---------------------------------------------------------------------
 
-    /**
-     * CL-J1 — an empty id-set means there is nothing to do and Postgres is never touched.
-     */
     @Test
     void executeClaimCampaignSubmission_with_nothing_queued_then_no_repository_interaction() {
         // Act
@@ -135,10 +121,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         verifyNoInteractions(claimCampaignRepository);
     }
 
-    /**
-     * CL-J2 — the core fairness property: with one seat, the <em>earliest</em> claim is approved
-     * regardless of enqueue order. An inverted score would silently break this.
-     */
+
     @Test
     void processClaimCheck_with_one_seat_then_earliest_claim_wins() {
         // Arrange — enqueue order 1,2,3 but claim dates t3 < t1 < t2
@@ -161,9 +144,23 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.REJECTED, settled.get(2L).getStatus());
     }
 
-    /**
-     * CL-J3 — loyalty points ride in the member value only; they must not influence ordering.
-     */
+
+    @Test
+    void processClaimCheck_with_same_claim_date_then_higher_points_wins() {
+        // Arrange
+        givenSeats(CAMPAIGN_ID, 1);
+        givenQueuedClaim(CAMPAIGN_ID, 1L, 10, LocalDateTime.of(2026, 8, 31, 10, 0));
+        givenQueuedClaim(CAMPAIGN_ID, 2L, 9999, LocalDateTime.of(2026, 8, 31, 10, 0));
+
+        // Act
+        claimCampaignService.processClaimCheck(CAMPAIGN_ID);
+
+        // Assert
+        var settled = settledByUserId();
+        assertEquals(ClaimCampaignStatus.REJECTED, settled.get(1L).getStatus());
+        assertEquals(ClaimCampaignStatus.APPROVED, settled.get(2L).getStatus());
+    }
+
     @Test
     void processClaimCheck_with_higher_points_on_later_claim_then_earlier_claim_still_wins() {
         // Arrange
@@ -180,9 +177,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.REJECTED, settled.get(2L).getStatus());
     }
 
-    /**
-     * CL-J4 — a queue longer than the batch size is drained across loop iterations.
-     */
+
     @Test
     void processClaimCheck_with_queue_larger_than_batch_size_then_queue_fully_drained() {
         // Arrange
@@ -201,9 +196,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         verify(claimCampaignRepository, times(5)).save(any(ClaimCampaign.class));
     }
 
-    /**
-     * CL-J5 — the id-set is consumed by SPOP, so a run does not re-scan the same campaigns.
-     */
+
     @Test
     void executeClaimCampaignSubmission_then_campaign_id_set_is_drained() {
         // Arrange
@@ -222,10 +215,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.APPROVED, settled.get(2L).getStatus());
     }
 
-    /**
-     * CL-J6 — {@code processClaimCheck} catches per campaign, so a campaign that blows up does not
-     * starve the others in the same run.
-     */
+
     @Test
     void executeClaimCampaignSubmission_with_one_failing_campaign_then_other_campaign_still_settled() {
         // Arrange — campaign 100 has a queued claim with no backing row (CL-P5 conditions)
@@ -243,35 +233,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.APPROVED, settled.get(22L).getStatus());
     }
 
-    /**
-     * CL-J7 — documents a known gap: {@code ZPOPMAX} removes entries before they are settled, so a
-     * throw mid-batch discards every claim that was popped alongside it. They stay SUBMITTED forever;
-     * the 60s refresh restores the counters but does not re-settle the orphaned rows.
-     * Asserts current behaviour; see docs/test_plan_service.md "Known gaps" (2).
-     */
-    @Test
-    void processClaimCheck_with_failure_mid_batch_then_remaining_popped_claims_are_lost() {
-        // Arrange — the second claim by claim date has no backing row
-        givenSeats(CAMPAIGN_ID, 5);
-        givenQueuedClaim(CAMPAIGN_ID, 1L, 10, LocalDateTime.of(2026, 8, 31, 10, 0));
-        givenQueuedClaimWithoutRow(CAMPAIGN_ID, 2L, 10, LocalDateTime.of(2026, 8, 31, 11, 0));
-        givenQueuedClaim(CAMPAIGN_ID, 3L, 10, LocalDateTime.of(2026, 8, 31, 12, 0));
 
-        // Act
-        claimCampaignService.processClaimCheck(CAMPAIGN_ID);
-
-        // Assert — only the first claim settled, and the queue is empty: claim 3 was silently dropped
-        var settled = settledByUserId();
-        assertEquals(1, settled.size());
-        assertEquals(ClaimCampaignStatus.APPROVED, settled.get(1L).getStatus());
-        assertEquals(0L, redisTemplate.opsForZSet().zCard(zsetKey(CAMPAIGN_ID)));
-        verify(claimCampaignRepository, never()).findByUserIdAndCampaignId(3L, CAMPAIGN_ID);
-    }
-
-    /**
-     * CL-J8 — the {@code "{loyaltyPoints}#{userId}"} encoding is load-bearing: the user id is the part
-     * after the '#'.
-     */
     @Test
     void processClaimCheck_with_encoded_value_then_user_id_extracted_from_suffix() {
         // Arrange
@@ -287,10 +249,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.APPROVED, settledByUserId().get(42L).getStatus());
     }
 
-    /**
-     * CL-J8 — a value with no '#' yields a null user id, which must be absorbed by the per-claim catch
-     * rather than aborting the rest of the batch.
-     */
+
     @Test
     void processClaimCheck_with_malformed_value_then_batch_continues() {
         // Arrange
@@ -319,9 +278,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         assertEquals(ClaimCampaignStatus.APPROVED, validClaim.getStatus());
     }
 
-    /**
-     * CL-J4 companion — {@code processClaimCheck} returns the number of claims it consumed.
-     */
+
     @Test
     void processClaimCheck_with_empty_queue_then_returns_zero() {
         // Act
@@ -332,9 +289,7 @@ class ClaimCampaignSubmissionJobTest extends AbstractRedisTest {
         verifyNoInteractions(claimCampaignRepository);
     }
 
-    /**
-     * Sanity check that the fixture drains a multi-campaign run through the public entry point.
-     */
+
     @Test
     void executeClaimCampaignSubmission_then_processes_every_registered_campaign() {
         // Arrange

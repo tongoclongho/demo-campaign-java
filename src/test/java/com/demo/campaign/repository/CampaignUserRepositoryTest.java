@@ -1,7 +1,6 @@
-package com.demo.campaign;
+package com.demo.campaign.repository;
 
 import com.demo.campaign.entity.CampaignUser;
-import com.demo.campaign.repository.CampaignUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -17,12 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * RP-U* from docs/test_plan_repository.md — the seeded {@code campaign_user} rows and the two schema
- * rules the entity leans on ({@code uk_user_email}, {@code loyalty_points NOT NULL DEFAULT 0}).
- *
- * <p>Docker must be running.
- */
+
 @Import(TestcontainersConfiguration.class)
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -34,7 +28,6 @@ class CampaignUserRepositoryTest {
     @Autowired
     private TestEntityManager entityManager;
 
-    /** RP-U1 — the Flyway seed gives alice 10 loyalty points. */
     @Test
     void findById_of_a_seeded_user_then_returns_it_with_seeded_loyaltyPoints() {
         CampaignUser alice = seededUser("alice@campaign.com");
@@ -45,7 +38,6 @@ class CampaignUserRepositoryTest {
         assertEquals(10, found.getLoyaltyPoints());
     }
 
-    /** RP-U2 — {@code uk_user_email} rejects a second row with a seeded email. */
     @Test
     void save_duplicate_email_then_DataIntegrityViolationException() {
         CampaignUser duplicate = CampaignUser.builder().email("alice@campaign.com").loyaltyPoints(1).build();
@@ -59,11 +51,7 @@ class CampaignUserRepositoryTest {
                 () -> "expected the unique constraint name in: " + rootMessage(ex));
     }
 
-    /**
-     * RP-U3 — the entity always writes the column, so a set value is persisted verbatim; the schema
-     * default {@code 0} is what keeps the NOT NULL column satisfiable for rows inserted outside JPA
-     * (the Flyway seeds, `INSERT` statements in migrations).
-     */
+
     @Test
     void loyaltyPoints_persisted_when_set_and_defaults_to_0_at_the_column_level() {
         CampaignUser withPoints = campaignUserRepository.save(

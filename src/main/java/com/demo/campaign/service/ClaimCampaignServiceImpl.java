@@ -129,8 +129,10 @@ public class ClaimCampaignServiceImpl implements ClaimCampaignService {
 
     protected void processClaim(Long campaignId, Long userId) {
         ClaimCampaign claimCampaign = claimCampaignRepository.findByUserIdAndCampaignId(userId, campaignId).orElse(null);
-        if (claimCampaign == null) {
-            log.warn("Claim_campaign entity not found with campaign_id {} and user_id {}", campaignId, userId);
+        if (claimCampaign == null
+                || ClaimCampaignStatus.SUBMITTED != claimCampaign.getStatus()) {
+            log.warn("Claim_campaign with campaign_id {} and user_id {} is not found, or not a SUBMITTED status", campaignId, userId);
+            return;
         }
 
         try {
@@ -156,7 +158,7 @@ public class ClaimCampaignServiceImpl implements ClaimCampaignService {
         return arrays.length == 2 ? Long.parseLong(arrays[1]) : null;
     }
 
-    private LocalDateTime convertDateTime(Long reveredTimestamp){
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.MAX_VALUE - reveredTimestamp), ZoneOffset.UTC);
+    private LocalDateTime convertDateTime(Long reverseTimestamp){
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.MAX_VALUE - reverseTimestamp), ZoneOffset.UTC);
     }
 }

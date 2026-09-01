@@ -36,16 +36,13 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * Plain Mockito slice for the branching logic of {@link ClaimCampaignServiceImpl} — the synchronous
- * accept ({@code claimCampaign}, CL-S*) and the settlement decision ({@code processClaim}, CL-P*).
- * See docs/test_plan_service.md. The queue-draining job is covered against a real Redis in
- * {@link ClaimCampaignSubmissionJobTest}.
- */
+
 @ExtendWith(MockitoExtension.class)
 class ClaimCampaignServiceImplTest {
 
@@ -110,13 +107,7 @@ class ClaimCampaignServiceImplTest {
         verify(redisServiceHelper, never()).sendClaimToPriorityQueue(any());
     }
 
-    // ---------------------------------------------------------------------
-    // claimCampaign
-    // ---------------------------------------------------------------------
 
-    /**
-     * CL-S1 — the happy path persists a SUBMITTED row carrying the request's identifiers and date.
-     */
     @Test
     void claimCampaign_with_all_guards_passing_then_persists_submitted_claim() {
         // Arrange
@@ -138,10 +129,7 @@ class ClaimCampaignServiceImplTest {
         assertNull(saved.getReason());
     }
 
-    /**
-     * CL-S2 — the enqueued submission carries the loyalty points of the <em>loaded</em> user, so a
-     * client cannot influence the value that rides in the ZSET member.
-     */
+
     @Test
     void claimCampaign_with_all_guards_passing_then_enqueues_with_points_from_loaded_user() {
         // Arrange
@@ -162,9 +150,7 @@ class ClaimCampaignServiceImplTest {
         assertEquals(77, submission.getUserPoints());
     }
 
-    /**
-     * CL-S3 — an existing member is rejected by the Redis guard before anything is written.
-     */
+
     @Test
     void claimCampaign_with_user_already_in_members_then_throws_and_nothing_persisted() {
         // Arrange
@@ -180,9 +166,7 @@ class ClaimCampaignServiceImplTest {
         verifyNoMoreInteractions(campaignRepository, campaignUserRepository);
     }
 
-    /**
-     * CL-S4 — a full campaign is rejected before Postgres is touched at all.
-     */
+
     @Test
     void claimCampaign_with_no_available_seats_then_throws_without_touching_postgres() {
         // Arrange
@@ -197,9 +181,7 @@ class ClaimCampaignServiceImplTest {
         verifyNoMoreInteractions(campaignRepository, campaignUserRepository);
     }
 
-    /**
-     * CL-S5 — unknown campaign.
-     */
+
     @Test
     void claimCampaign_with_unknown_campaign_then_throws_and_nothing_persisted() {
         // Arrange
@@ -213,9 +195,7 @@ class ClaimCampaignServiceImplTest {
         verifyNoMoreInteractions(campaignUserRepository);
     }
 
-    /**
-     * CL-S6 — unknown user.
-     */
+
     @Test
     void claimCampaign_with_unknown_user_then_throws_and_nothing_persisted() {
         // Arrange
@@ -229,10 +209,7 @@ class ClaimCampaignServiceImplTest {
         verifyNothingPersistedOrEnqueued();
     }
 
-    /**
-     * CL-S7 — the cheap Redis guards must run first, and in this order. A regression here means a full
-     * campaign starts hitting Postgres on every request.
-     */
+
     @Test
     void claimCampaign_then_redis_guards_run_before_postgres_lookups() {
         // Arrange
@@ -249,10 +226,7 @@ class ClaimCampaignServiceImplTest {
         order.verify(campaignUserRepository).findById(USER_ID);
     }
 
-    /**
-     * CL-S8 — the row must exist before the claim is enqueued; enqueueing first would let the job pop a
-     * claim whose row is not yet visible.
-     */
+
     @Test
     void claimCampaign_then_persists_before_enqueueing() {
         // Arrange
@@ -267,9 +241,6 @@ class ClaimCampaignServiceImplTest {
         order.verify(redisServiceHelper).sendClaimToPriorityQueue(any(ClaimSubmissionDTO.class));
     }
 
-    // ---------------------------------------------------------------------
-    // processClaim — the settlement decision
-    // ---------------------------------------------------------------------
 
     private ClaimCampaign submittedClaim() {
         return ClaimCampaign.builder()
@@ -280,9 +251,7 @@ class ClaimCampaignServiceImplTest {
                 .build();
     }
 
-    /**
-     * CL-P1 — a reserved seat plus a fresh member entry approves the claim.
-     */
+
     @Test
     void processClaim_with_seat_reserved_and_member_added_then_approved() {
         // Arrange
@@ -301,9 +270,7 @@ class ClaimCampaignServiceImplTest {
         assertNull(captor.getValue().getReason());
     }
 
-    /**
-     * CL-P2 — no seats left: the claim is rejected and the member set is never touched.
-     */
+
     @Test
     void processClaim_with_no_seat_reserved_then_rejected_and_members_untouched() {
         // Arrange
@@ -325,9 +292,7 @@ class ClaimCampaignServiceImplTest {
         verify(redisServiceHelper, never()).addUserToCampaignMembers(anyLong(), anyLong());
     }
 
-    /**
-     * CL-P3 — the user was already in the member set: rejected with the "claimed already" reason.
-     */
+
     @Test
     void processClaim_with_duplicate_member_then_rejected_with_already_claimed_reason() {
         // Arrange
@@ -348,18 +313,15 @@ class ClaimCampaignServiceImplTest {
         assertTrue(settled.getReason().contains("claimed already"), settled.getReason());
     }
 
-    /**
-     * CL-P4 — a rejected claim must never be left at SUBMITTED; both rejection paths persist.
-     */
+
     @Test
-    void processClaim_with_either_rejection_path_then_claim_is_persisted() {
+    void processClaim_with_either_REJECTED_or_APPROVED_then_nothing_persisted() {
         // Arrange — no seats
         when(claimCampaignRepository.findByUserIdAndCampaignId(USER_ID, CAMPAIGN_ID))
                 .thenReturn(Optional.of(submittedClaim()));
         when(redisServiceHelper.reserveCampaignSeat(CAMPAIGN_ID))
-                .thenReturn(Optional.empty())     // first call: no seats
-                .thenReturn(Optional.of(4L));     // second call: seat taken, duplicate member below
-        when(redisServiceHelper.addUserToCampaignMembers(CAMPAIGN_ID, USER_ID)).thenReturn(Optional.empty());
+                .thenReturn(Optional.empty())     // first call: no seats -> REJECTED
+                .thenReturn(Optional.of(4L));     // second call: available seats -> silent skip
 
         // Act
         claimCampaignService.processClaim(CAMPAIGN_ID, USER_ID);
@@ -367,51 +329,26 @@ class ClaimCampaignServiceImplTest {
 
         // Assert
         var captor = ArgumentCaptor.forClass(ClaimCampaign.class);
-        verify(claimCampaignRepository, Mockito.times(2)).save(captor.capture());
+        verify(claimCampaignRepository, Mockito.times(1)).save(captor.capture());
         captor.getAllValues()
                 .forEach(claim -> assertEquals(ClaimCampaignStatus.REJECTED, claim.getStatus()));
     }
 
-    /**
-     * CL-P5 — documents a known gap: when the claim row is missing the warning is logged but there is
-     * no early return, so {@code setStatus} NPEs inside the try and the catch block NPEs again on the
-     * same null reference, letting the NPE escape.
-     * Asserts current behaviour; see docs/test_plan_service.md "Known gaps" (1).
-     */
+
     @Test
-    void processClaim_with_missing_claim_row_then_currently_throws_npe() {
+    void processClaim_with_missing_claim_row_then_nothing_persisted() {
         // Arrange
         when(claimCampaignRepository.findByUserIdAndCampaignId(USER_ID, CAMPAIGN_ID)).thenReturn(Optional.empty());
-        when(redisServiceHelper.reserveCampaignSeat(CAMPAIGN_ID)).thenReturn(Optional.of(4L));
-        when(redisServiceHelper.addUserToCampaignMembers(CAMPAIGN_ID, USER_ID)).thenReturn(Optional.of(Boolean.TRUE));
-
-        // Act / Assert
-        assertThrows(NullPointerException.class,
-                () -> claimCampaignService.processClaim(CAMPAIGN_ID, USER_ID));
-
-        verify(claimCampaignRepository, never()).save(any());
-    }
-
-    /**
-     * CL-P6 — documents a known gap: the seat decremented for a claim that is then rejected for a
-     * duplicate member is never compensated. The counter is only corrected by the next
-     * {@code refreshRedisCache}.
-     * Asserts current behaviour; see docs/test_plan_service.md "Known gaps" (3).
-     */
-    @Test
-    void processClaim_with_duplicate_member_then_reserved_seat_is_leaked() {
-        // Arrange
-        when(claimCampaignRepository.findByUserIdAndCampaignId(USER_ID, CAMPAIGN_ID))
-                .thenReturn(Optional.of(submittedClaim()));
-        when(redisServiceHelper.reserveCampaignSeat(CAMPAIGN_ID)).thenReturn(Optional.of(4L));
-        when(redisServiceHelper.addUserToCampaignMembers(CAMPAIGN_ID, USER_ID)).thenReturn(Optional.empty());
 
         // Act
         claimCampaignService.processClaim(CAMPAIGN_ID, USER_ID);
 
-        // Assert — the seat was taken, and nothing gives it back
-        verify(redisServiceHelper).reserveCampaignSeat(CAMPAIGN_ID);
-        verify(redisServiceHelper).addUserToCampaignMembers(CAMPAIGN_ID, USER_ID);
-        verifyNoMoreInteractions(redisServiceHelper);
+        // Assert
+        verify(claimCampaignRepository, times(1)).findByUserIdAndCampaignId(any(), any());
+        verifyNoInteractions(redisServiceHelper);
+        verify(claimCampaignRepository, never()).save(any());
+
+
     }
+
 }

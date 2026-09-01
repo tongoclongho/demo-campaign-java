@@ -21,11 +21,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * {@link CacheManager} rebuilding derived Redis state from Postgres, against a real Redis container
- * with mocked repositories. See docs/test_plan_service.md (CM-1..CM-3); CM-4 lives in
- * {@code com.demo.campaign.CacheManagerStartupTest}.
- */
 class CacheManagerTest extends AbstractRedisTest {
 
     private static final Long CAMPAIGN_ID = 1L;
@@ -60,9 +55,7 @@ class CacheManagerTest extends AbstractRedisTest {
         return AppConstants.CAMPAIGN_AVAILABLE_SEATS + CAMPAIGN_ID;
     }
 
-    /**
-     * CM-1 — member set and seat counter are both recomputed from the approved rows.
-     */
+
     @Test
     void refreshRedisCache_with_approved_claims_then_members_and_seats_rebuilt() {
         // Arrange
@@ -78,10 +71,7 @@ class CacheManagerTest extends AbstractRedisTest {
         assertEquals("3", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    /**
-     * CM-2 — only APPROVED rows count. The filtering happens in SQL, so what this asserts is that the
-     * manager asks for the APPROVED status and consumes nothing else.
-     */
+
     @Test
     void refreshRedisCache_with_mixed_statuses_then_only_approved_consume_seats() {
         // Arrange — the stub filters by whatever status the manager asks for
@@ -107,10 +97,7 @@ class CacheManagerTest extends AbstractRedisTest {
         assertEquals("3", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    /**
-     * CM-3 — a campaign with no approved claims has its member key deleted (not left stale) and gets
-     * its full capacity back.
-     */
+
     @Test
     void refreshRedisCache_with_no_claims_then_members_deleted_and_seats_at_full_capacity() {
         // Arrange — stale members left over from a previous state
@@ -126,10 +113,7 @@ class CacheManagerTest extends AbstractRedisTest {
         assertEquals("5", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    /**
-     * CM-3 companion — the seat refresh takes {@code max(current, recomputed)}, so a decrement that is
-     * still in flight is not clobbered back up to the recomputed value.
-     */
+
     @Test
     void refreshRedisCache_with_higher_current_seats_then_current_value_kept() {
         // Arrange — Redis says 5, Postgres-derived value is 3
@@ -145,9 +129,7 @@ class CacheManagerTest extends AbstractRedisTest {
         assertEquals("5", redisTemplate.opsForValue().get(seatsKey()));
     }
 
-    /**
-     * Every campaign is reconciled, not just the first.
-     */
+
     @Test
     void refreshRedisCache_with_multiple_campaigns_then_each_one_refreshed() {
         // Arrange

@@ -46,10 +46,10 @@ public class RedisServiceHelper {
     public void sendClaimToPriorityQueue(ClaimSubmissionDTO claim) {
         var redisKey = AppConstants.CLAIM_CAMPAIGN_PRIORITY_ZSET + claim.getCampaignId();
         var redisValue = serializeRedisValue(claim.getUserId(), claim.getUserPoints());
-        var reveredTimestamp = getReveredTimestampAsScore(claim.getClaimDate());
+        var reverseTimestamp = getReverseTimestampAsScore(claim.getClaimDate());
 
         log.info("Submit claim to ZSET with details: campaign_id {} - claim_date {} - loyalty_points#user_id {}", claim.getCampaignId(), claim.getClaimDate(), redisValue);
-        redisTemplate.opsForZSet().add(redisKey, redisValue, reveredTimestamp);
+        redisTemplate.opsForZSet().add(redisKey, redisValue, reverseTimestamp);
 
         // register campaign_id for the next claim check job
         redisTemplate.opsForSet().add(AppConstants.CLAIM_CAMPAIGN_PRIORITY_IDS_SET, claim.getCampaignId().toString());
@@ -71,7 +71,7 @@ public class RedisServiceHelper {
     }
 
 
-    private Long getReveredTimestampAsScore(LocalDateTime dateTime) {
+    private Long getReverseTimestampAsScore(LocalDateTime dateTime) {
         return Long.MAX_VALUE - dateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
     }
 

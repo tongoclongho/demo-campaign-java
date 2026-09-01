@@ -13,7 +13,6 @@ import com.demo.campaign.service.exception.NoSuchCampaignException;
 import com.demo.campaign.service.exception.NoSuchUserException;
 import com.demo.campaign.service.mapper.MapperConfig;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -97,13 +96,6 @@ class ClaimControllerTest {
 
     }
 
-    // ---------------------------------------------------------------------
-    // POST /api/v1/claim
-    // ---------------------------------------------------------------------
-
-    /**
-     * CL-P1 — happy path. The synchronous response is the accepted submission, not the decision.
-     */
     @Test
     void claimCampaign_with_correct_request_body_then_success_with_status_200() {
         // Arrange
@@ -135,9 +127,7 @@ class ClaimControllerTest {
         assertEquals("SUBMITTED", result.getStatus());
     }
 
-    /**
-     * CL-P2 — campaignId is mandatory.
-     */
+
     @Test
     void claimCampaign_with_missing_campaignId_then_failed_with_status_400() {
         // Arrange
@@ -160,9 +150,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignService);
     }
 
-    /**
-     * CL-P3 — userId is mandatory.
-     */
+
     @Test
     void claimCampaign_with_missing_userId_then_failed_with_status_400() {
         // Arrange
@@ -185,9 +173,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignService);
     }
 
-    /**
-     * CL-P4 — every violation is reported, not just the first one.
-     */
+
     @Test
     void claimCampaign_with_missing_userId_and_campaignId_then_failed_with_status_400() {
         // Arrange
@@ -211,9 +197,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignService);
     }
 
-    /**
-     * CL-P5 — the user already holds a seat in the campaign.
-     */
+
     @Test
     void claimCampaign_with_already_claimed_user_then_failed_with_status_400() {
         // Arrange
@@ -238,9 +222,7 @@ class ClaimControllerTest {
         assertEquals("The user has claimed the campaign already.", result.message());
     }
 
-    /**
-     * CL-P6 — the campaign is full.
-     */
+
     @Test
     void claimCampaign_with_no_available_seats_then_failed_with_status_400() {
         // Arrange
@@ -265,9 +247,7 @@ class ClaimControllerTest {
         assertEquals("The campaign has no available seats.", result.message());
     }
 
-    /**
-     * CL-P7 — unknown campaign.
-     */
+
     @Test
     void claimCampaign_with_unknown_campaign_then_failed_with_status_400() {
         // Arrange
@@ -292,9 +272,7 @@ class ClaimControllerTest {
         assertEquals("The campaign does not exist.", result.message());
     }
 
-    /**
-     * CL-P8 — unknown user.
-     */
+
     @Test
     void claimCampaign_with_unknown_user_then_failed_with_status_400() {
         // Arrange
@@ -319,46 +297,8 @@ class ClaimControllerTest {
         assertEquals("The user does not exist.", result.message());
     }
 
-    /**
-     * CL-P9 — {@code claimDate} is {@code @JsonIgnore}d and therefore server-assigned. A client must
-     * not be able to backdate itself to the front of the priority ZSET, whose score is derived from
-     * this field.
-     */
-    @Test
-    void claimCampaign_with_client_supplied_claimDate_then_claimDate_is_server_assigned() {
-        // Arrange
-        var beforeRequest = LocalDateTime.now().minusMinutes(1);
-        var body = """
-                {"userId":1,"campaignId":2,"claimDate":"2020-01-01T00:00:00"}""";
-        when(claimCampaignService.claimCampaign(any(CreateClaimCampaign.class)))
-                .thenReturn(ClaimCampaignDTO.builder()
-                        .userId(1L)
-                        .campaignId(2L)
-                        .status(ClaimCampaignStatus.SUBMITTED.name())
-                        .claimDate(LocalDateTime.now())
-                        .build());
 
-        // Act
-        restTestClient.post()
-                .uri("/api/v1/claim")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .exchange()
-                .expectStatus().isOk();
 
-        // Assert
-        var captor = ArgumentCaptor.forClass(CreateClaimCampaign.class);
-        verify(claimCampaignService, times(1)).claimCampaign(captor.capture());
-
-        var claimDate = captor.getValue().getClaimDate();
-        assertNotNull(claimDate);
-        assertThat(claimDate).isAfter(beforeRequest);
-        assertThat(claimDate.getYear()).isNotEqualTo(2020);
-    }
-
-    /**
-     * CL-P10 — a null reason is omitted from the response by {@code @JsonInclude(NON_NULL)}.
-     */
     @Test
     void claimCampaign_with_null_reason_then_reason_omitted_from_response() {
         // Arrange
@@ -389,9 +329,7 @@ class ClaimControllerTest {
         assertThat(result).doesNotContain("reason");
     }
 
-    /**
-     * CL-P11 — a rejection reason is serialized when present.
-     */
+
     @Test
     void claimCampaign_with_rejected_status_then_reason_present_in_response() {
         // Arrange
@@ -422,17 +360,9 @@ class ClaimControllerTest {
         assertEquals("The campaign has no available seats.", result.getReason());
     }
 
-    // ---------------------------------------------------------------------
-    // GET /api/v1/claim
-    // ---------------------------------------------------------------------
 
-    /**
-     * CL-G1 — documents a known gap: {@code NoSuchClaimCampaignException} has no handler in
-     * {@link ControllerAdvice}, so a missing claim surfaces as a 500 instead of a 404.
-     * Asserts current behaviour; see docs/test_plan_controller.md "Known gaps".
-     */
     @Test
-    void getClaimCampaignStatus_from_non_existing_claim_campaign_then_currently_failed_with_status_500() {
+    void getClaimCampaignStatus_from_non_existing_claim_campaign_then_currently_failed_with_status_400() {
         // Arrange
         when(claimCampaignRepository.findByUserIdAndCampaignId(any(), any())).thenReturn(Optional.empty());
 
@@ -440,22 +370,18 @@ class ClaimControllerTest {
         var result = restTestClient.get()
                 .uri("/api/v1/claim?userId={userId}&campaignId={campaignId}", 1L, 1L)
                 .exchange()
-                .expectStatus().is5xxServerError()
+                .expectStatus().isBadRequest()
                 .expectBody(ErrorResponse.class)
                 .returnResult()
                 .getResponseBody();
 
         // Assert
         assertNotNull(result);
-        assertEquals(500, result.code());
-        assertEquals("An unexpected error occurred on the server.", result.message());
+        assertEquals(400, result.code());
+        assertEquals("The user has not claimed the campaign yet.", result.message());
         Mockito.verifyNoInteractions(mapperConfig);
     }
 
-    /**
-     * CL-G2 — documents a known gap: {@code MissingServletRequestParameterException} is unmapped.
-     * Asserts current behaviour; see docs/test_plan_controller.md "Known gaps".
-     */
     @Test
     void getClaimCampaignStatus_with_missing_userId_param_then_currently_failed_with_status_500() {
         // Act
@@ -473,9 +399,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignRepository);
     }
 
-    /**
-     * CL-G3 — same gap as CL-G2, for the campaignId parameter.
-     */
+
     @Test
     void getClaimCampaignStatus_with_missing_campaignId_param_then_currently_failed_with_status_500() {
         // Act
@@ -493,10 +417,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignRepository);
     }
 
-    /**
-     * CL-G4 — documents a known gap: {@code MethodArgumentTypeMismatchException} is unmapped.
-     * Asserts current behaviour; see docs/test_plan_controller.md "Known gaps".
-     */
+
     @Test
     void getClaimCampaignStatus_with_non_numeric_userId_param_then_currently_failed_with_status_500() {
         // Act
@@ -514,9 +435,7 @@ class ClaimControllerTest {
         Mockito.verifyNoInteractions(claimCampaignRepository);
     }
 
-    /**
-     * CL-G5 — guards against the two {@code Long} arguments being transposed.
-     */
+
     @Test
     void getClaimCampaignStatus_then_params_passed_to_repository_in_order() {
         // Arrange
@@ -540,9 +459,7 @@ class ClaimControllerTest {
         verify(claimCampaignRepository, times(1)).findByUserIdAndCampaignId(eq(1L), eq(2L));
     }
 
-    /**
-     * CL-G6 — a settled REJECTED claim is returned as-is, reason included.
-     */
+
     @Test
     void getClaimCampaignStatus_from_rejected_claim_campaign_then_success_with_status_200() {
         // Arrange

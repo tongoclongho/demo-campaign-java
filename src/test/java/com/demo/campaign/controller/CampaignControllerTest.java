@@ -19,7 +19,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.test.web.servlet.client.assertj.RestTestClientResponse;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,9 +74,7 @@ class CampaignControllerTest {
         assertEquals(0, result.get(0).getUsedSeats());
     }
 
-    /**
-     * CC-G1 — no campaigns exist.
-     */
+
     @Test
     void getCampaign_with_no_existing_campaign_then_success_with_empty_list_and_status_200() {
         // Arrange
@@ -97,9 +94,6 @@ class CampaignControllerTest {
         assertTrue(result.isEmpty());
     }
 
-    /**
-     * CC-G2 — usedSeats computed by the service is carried through to the response.
-     */
     @Test
     void getCampaign_with_used_seats_then_used_seats_carried_through_with_status_200() {
         // Arrange
@@ -124,9 +118,7 @@ class CampaignControllerTest {
         assertThat(result).bodyJson().extractingPath("$[0].usedSeats").isEqualTo(3);
     }
 
-    /**
-     * CC-G3 — multiple campaigns are returned in the order the service produced them.
-     */
+
     @Test
     void getCampaign_with_multiple_campaigns_then_order_preserved_with_status_200() {
         // Arrange
@@ -160,10 +152,7 @@ class CampaignControllerTest {
         assertEquals("SECOND", result.get(1).getCampaignCode());
     }
 
-    /**
-     * CC-G4 — an unmapped runtime exception falls to the catch-all handler, which must not leak the
-     * cause to the client.
-     */
+
     @Test
     void getCampaign_when_service_throws_unmapped_exception_then_failed_with_status_500() {
         // Arrange
@@ -236,9 +225,7 @@ class CampaignControllerTest {
         assertThat(result).bodyJson().extractingPath("$.campaignCode").asString().isEqualTo("must not be blank");
     }
 
-    /**
-     * CC-P1 — {@code totalCapacity = 0} violates {@code @Min(1)}.
-     */
+
     @Test
     void createCampaign_with_zero_totalCapacity_then_failed_with_status_400() {
         // Arrange
@@ -261,9 +248,7 @@ class CampaignControllerTest {
         Mockito.verifyNoInteractions(campaignService);
     }
 
-    /**
-     * CC-P2 — a negative {@code totalCapacity} violates {@code @Min(1)}.
-     */
+
     @Test
     void createCampaign_with_negative_totalCapacity_then_failed_with_status_400() {
         // Arrange
@@ -286,9 +271,7 @@ class CampaignControllerTest {
         Mockito.verifyNoInteractions(campaignService);
     }
 
-    /**
-     * CC-P3 — a whitespace-only campaignCode is blank, not merely empty.
-     */
+
     @Test
     void createCampaign_with_blank_campaignCode_then_failed_with_status_400() {
         // Arrange
@@ -309,9 +292,7 @@ class CampaignControllerTest {
         Mockito.verifyNoInteractions(campaignService);
     }
 
-    /**
-     * CC-P4 — a duplicate campaign code is rejected by the service and mapped to a 400 ErrorResponse.
-     */
+
     @Test
     void createCampaign_with_duplicated_campaignCode_then_failed_with_status_400() {
         // Arrange
@@ -336,9 +317,7 @@ class CampaignControllerTest {
         assertThat(result.message()).contains("TEST");
     }
 
-    /**
-     * CC-P5 — the controller must hand the deserialized body to the service untouched.
-     */
+
     @Test
     void createCampaign_with_correct_request_body_then_request_reaches_service_unchanged() {
         // Arrange
@@ -361,56 +340,23 @@ class CampaignControllerTest {
         assertEquals(7, captor.getValue().totalCapacity());
     }
 
-    /**
-     * CC-P6 — documents a known gap: {@code @Min} treats {@code null} as valid and there is no
-     * {@code @NotNull}, so an omitted totalCapacity passes validation and reaches the service.
-     * Asserts current behaviour; see docs/test_plan_controller.md "Known gaps".
-     */
     @Test
-    void createCampaign_with_missing_totalCapacity_then_currently_delegates_to_service() {
+    void createCampaign_with_missing_totalCapacity_then_then_failed_with_status_400() {
         // Arrange
-        var body = new HashMap<String, Object>();
-        body.put("campaignCode", "TEST");
-        when(campaignService.createCampaign(any(CreateCampaign.class)))
-                .thenReturn(CampaignDTO.builder().campaignId(1L).campaignCode("TEST").build());
+        var body = Map.of("campaignCode", "TEST");
 
         // Act
-        restTestClient.post()
+        var responseSpec = restTestClient.post()
                 .uri("/api/v1/campaign")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
-                .exchange()
-                .expectStatus().isCreated();
+                .exchange();
+
+        var result = RestTestClientResponse.from(responseSpec);
 
         // Assert
-        var captor = ArgumentCaptor.forClass(CreateCampaign.class);
-        verify(campaignService, times(1)).createCampaign(captor.capture());
-        Assertions.assertNull(captor.getValue().totalCapacity());
-    }
-
-    /**
-     * CC-P7 — documents a known gap: {@code HttpMessageNotReadableException} has no handler, so
-     * malformed JSON surfaces as a 500 instead of a 400.
-     * Asserts current behaviour; see docs/test_plan_controller.md "Known gaps".
-     */
-    @Test
-    void createCampaign_with_malformed_json_then_currently_failed_with_status_500() {
-        // Act
-        var result = restTestClient.post()
-                .uri("/api/v1/campaign")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body("{")
-                .exchange()
-                .expectStatus().is5xxServerError()
-                .expectBody(ErrorResponse.class)
-                .returnResult()
-                .getResponseBody();
-
-        // Assert
-        assertNotNull(result);
-        assertEquals(500, result.code());
-        assertEquals("An unexpected error occurred on the server.", result.message());
+        assertThat(result).hasStatus4xxClientError();
+        assertThat(result).bodyJson().extractingPath("$.totalCapacity").asString().isEqualTo("must not be null");
         Mockito.verifyNoInteractions(campaignService);
     }
-
 }

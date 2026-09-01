@@ -1,9 +1,8 @@
-package com.demo.campaign;
+package com.demo.campaign.repository;
 
 import com.demo.campaign.dto.CampaignUsedSeats;
 import com.demo.campaign.entity.ClaimCampaign;
 import com.demo.campaign.entity.ClaimCampaignStatus;
-import com.demo.campaign.repository.ClaimCampaignRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -23,15 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * RP-F*, RP-G*, RP-A*, RP-C4 and RP-C5 from docs/test_plan_repository.md.
- *
- * <p>Three of the queries under test are {@code nativeQuery = true}, so this runs against a real
- * {@code postgres:latest} container — Docker must be running. {@code @DataJpaTest} is transactional
- * and rolls back after each test, so the campaign ids invented below never leak between tests.
- * There are no foreign keys on {@code claim_campaign}, so claims can reference campaign ids that do
- * not exist in the {@code campaign} table (RP-C4).
- */
 @Import(TestcontainersConfiguration.class)
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -43,9 +33,6 @@ class ClaimCampaignRepositoryTest {
     @Autowired
     private TestEntityManager entityManager;
 
-    // ---------------------------------------------------------------- findByUserIdAndCampaignId
-
-    /** RP-F1 */
     @Test
     void findByUserIdAndCampaignId_when_match_exists_then_returns_the_claim() {
         ClaimCampaign saved = save(1001L, 501L, ClaimCampaignStatus.APPROVED, null);
@@ -57,16 +44,13 @@ class ClaimCampaignRepositoryTest {
         assertEquals(ClaimCampaignStatus.APPROVED, found.get().getStatus());
     }
 
-    /** RP-F2 */
+
     @Test
     void findByUserIdAndCampaignId_when_no_match_then_empty() {
         assertTrue(claimCampaignRepository.findByUserIdAndCampaignId(999_001L, 999_002L).isEmpty());
     }
 
-    /**
-     * RP-F3 — both parameters are {@code Long}, so transposing them is invisible to the compiler.
-     * The claim is stored as (userId = 1, campaignId = 2); only the (1, 2) call may find it.
-     */
+
     @Test
     void findByUserIdAndCampaignId_arguments_are_not_transposed() {
         save(2L, 1L, ClaimCampaignStatus.SUBMITTED, null);
@@ -77,7 +61,7 @@ class ClaimCampaignRepositoryTest {
                 "swapping the arguments must not match — findByUserIdAndCampaignId(userId, campaignId)");
     }
 
-    /** RP-F4 */
+
     @Test
     void findByUserIdAndCampaignId_returns_only_the_requested_campaign_for_a_user() {
         ClaimCampaign onCampaignA = save(1002L, 601L, ClaimCampaignStatus.APPROVED, null);
@@ -91,9 +75,7 @@ class ClaimCampaignRepositoryTest {
                 claimCampaignRepository.findByUserIdAndCampaignId(601L, 1002L).orElseThrow().getId());
     }
 
-    // --------------------------------------------------------------------- getClaimCampaignBy
 
-    /** RP-G1 */
     @Test
     void getClaimCampaignBy_filters_by_campaign_and_status() {
         ClaimCampaign approved = save(1010L, 701L, ClaimCampaignStatus.APPROVED, null);
@@ -107,7 +89,7 @@ class ClaimCampaignRepositoryTest {
         assertEquals(701L, result.get(0).getUserId());
     }
 
-    /** RP-G2 */
+
     @Test
     void getClaimCampaignBy_is_scoped_to_the_requested_campaign() {
         save(1020L, 801L, ClaimCampaignStatus.APPROVED, null);
@@ -120,11 +102,7 @@ class ClaimCampaignRepositoryTest {
         assertTrue(result.stream().allMatch(claim -> claim.getCampaignId() == 1020L));
     }
 
-    /**
-     * RP-G3 — {@code @Enumerated(EnumType.STRING)} is load-bearing: the native query compares the
-     * column against the literal {@code "APPROVED"}, so switching to ordinal storage would silently
-     * make {@code CacheManager} recompute every campaign as having zero used seats.
-     */
+
     @Test
     void status_enum_is_stored_as_its_name_so_the_native_query_matches() {
         ClaimCampaign approved = save(1030L, 901L, ClaimCampaignStatus.APPROVED, null);
@@ -139,7 +117,7 @@ class ClaimCampaignRepositoryTest {
         assertEquals(1, claimCampaignRepository.getClaimCampaignBy(1030L, "APPROVED").size());
     }
 
-    /** RP-G4 */
+
     @Test
     void getClaimCampaignBy_unknown_status_string_then_empty_list() {
         save(1040L, 902L, ClaimCampaignStatus.APPROVED, null);
@@ -149,15 +127,13 @@ class ClaimCampaignRepositoryTest {
                 "the comparison is case-sensitive; only the exact enum name matches");
     }
 
-    /** RP-G5 */
+
     @Test
     void getClaimCampaignBy_campaign_without_claims_then_empty_list() {
         assertTrue(claimCampaignRepository.getClaimCampaignBy(999_999L, "APPROVED").isEmpty());
     }
 
-    // ------------------------------------------------------------- aggregateCampaignUsedSeats
 
-    /** RP-A1 — only APPROVED rows count towards used seats. */
     @Test
     void aggregateCampaignUsedSeats_counts_approved_only() {
         save(1100L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -172,7 +148,7 @@ class ClaimCampaignRepositoryTest {
         assertEquals(2L, result.get(0).usedSeats());
     }
 
-    /** RP-A2 */
+
     @Test
     void aggregateCampaignUsedSeats_groups_per_campaign() {
         save(1110L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -188,11 +164,7 @@ class ClaimCampaignRepositoryTest {
         assertEquals(1L, byCampaign.get(1111L));
     }
 
-    /**
-     * RP-A3 — a campaign with no approved claims produces <em>no row at all</em>, not a row with 0.
-     * That is why {@code CampaignServiceImpl} defaults {@code usedSeats} to 0 instead of reading it
-     * off the projection.
-     */
+
     @Test
     void aggregateCampaignUsedSeats_campaign_without_approved_claims_then_no_row() {
         save(1120L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -205,13 +177,7 @@ class ClaimCampaignRepositoryTest {
                 "campaigns with no APPROVED rows are simply absent from the result");
     }
 
-    /**
-     * RP-A4 — settles known gap #1 in docs/test_plan_repository.md. The gap predicted a Postgres
-     * syntax error from {@code IN ()}; in practice Hibernate expands an empty collection to
-     * {@code IN (null)}, which is valid SQL matching nothing. So
-     * {@code CampaignServiceImpl.getCampaigns()} calling this unconditionally with an empty
-     * {@code map.keySet()} is safe, and no early return is needed.
-     */
+
     @Test
     void aggregateCampaignUsedSeats_with_an_empty_id_set_then_empty_list() {
         save(1160L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -221,11 +187,7 @@ class ClaimCampaignRepositoryTest {
                 "Hibernate renders IN (null) for an empty collection — valid SQL, matches nothing");
     }
 
-    /**
-     * RP-A5 — the projection binding. Postgres folds unquoted aliases to lower case
-     * ({@code campaignId} → {@code campaignid}), so this is the case that catches a projection which
-     * silently binds nulls into the {@link CampaignUsedSeats} record.
-     */
+
     @Test
     void aggregateCampaignUsedSeats_binds_both_record_components() {
         save(1130L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -242,7 +204,7 @@ class ClaimCampaignRepositoryTest {
         assertEquals(2L, row.usedSeats());
     }
 
-    /** RP-A6 */
+
     @Test
     void aggregateCampaignUsedSeats_with_a_subset_of_ids_then_only_those_rows() {
         save(1140L, 1L, ClaimCampaignStatus.APPROVED, null);
@@ -257,11 +219,7 @@ class ClaimCampaignRepositoryTest {
 
     // ------------------------------------------------------------------------ schema behaviour
 
-    /**
-     * RP-C4 — {@code claim_campaign.campaign_id} / {@code user_id} are plain {@code bigint} columns
-     * with no foreign keys, so an orphan claim inserts cleanly. That is by design: the claim pipeline
-     * writes the row before anything validates the campaign exists.
-     */
+
     @Test
     void orphan_claim_inserts_because_there_are_no_foreign_keys() {
         ClaimCampaign orphan = save(999_999L, 888_888L, ClaimCampaignStatus.SUBMITTED, null);
@@ -273,7 +231,6 @@ class ClaimCampaignRepositoryTest {
         assertEquals(888_888L, reloaded.getUserId());
     }
 
-    /** RP-C5 — {@code reason} is nullable, which is the normal shape of a SUBMITTED or APPROVED claim. */
     @Test
     void claim_with_null_reason_persists_and_reads_back_null() {
         ClaimCampaign saved = save(1150L, 1L, ClaimCampaignStatus.SUBMITTED, null);
@@ -282,8 +239,6 @@ class ClaimCampaignRepositoryTest {
 
         assertNull(claimCampaignRepository.findById(saved.getId()).orElseThrow().getReason());
     }
-
-    // ---------------------------------------------------------------------------------- helpers
 
     private ClaimCampaign save(Long campaignId, Long userId, ClaimCampaignStatus status, String reason) {
         return claimCampaignRepository.save(ClaimCampaign.builder()
