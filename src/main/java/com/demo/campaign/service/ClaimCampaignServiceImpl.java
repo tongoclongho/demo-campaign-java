@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -61,6 +62,10 @@ public class ClaimCampaignServiceImpl implements ClaimCampaignService {
     public ClaimCampaignDTO claimCampaign(CreateClaimCampaign request) {
         redisServiceHelper.requireUserNotInCampaignMembers(request.getUserId(), request.getCampaignId());
         redisServiceHelper.requireCampaignAvailableSeats(request.getCampaignId());
+
+        Optional<ClaimCampaign> existing = claimCampaignRepository.findByUserIdAndCampaignId(request.getUserId(), request.getCampaignId());
+        if (existing.isPresent())
+            return mapper.toDTO(existing.get());
 
         campaignRepository.findById(request.getCampaignId())
                 .orElseThrow(() -> new NoSuchCampaignException("Campaign not found."));

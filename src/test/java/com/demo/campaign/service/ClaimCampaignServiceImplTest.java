@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -351,4 +352,20 @@ class ClaimCampaignServiceImplTest {
 
     }
 
+    @Test
+    void claimCampaign_with_duplicated_userId_and_campaignId_then_return_existing_one() {
+        // Arrange
+        when(claimCampaignRepository.findByUserIdAndCampaignId(USER_ID, CAMPAIGN_ID))
+                .thenReturn(Optional.of(submittedClaim()));
+
+        doNothing().when(redisServiceHelper).requireUserNotInCampaignMembers(USER_ID, CAMPAIGN_ID);
+        doNothing().when(redisServiceHelper).requireCampaignAvailableSeats(CAMPAIGN_ID);
+
+        // Act
+        claimCampaignService.claimCampaign(request(LocalDateTime.now()));
+
+        // Assert
+        verifyNoInteractions(campaignRepository, campaignUserRepository);
+        verifyNothingPersistedOrEnqueued();
+    }
 }

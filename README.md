@@ -45,6 +45,8 @@ docker run --name my-redis -p 6379:6379 -d redis
 ## Functional requirements
 
 ### 1. Application on startup
+- Flyway migration if any
+- AppRunner to init redis
 
 ### 2. Scheduling Jobs
 - The `CacheManager.refreshRedisCache` runs every 60s to refresh Redis
