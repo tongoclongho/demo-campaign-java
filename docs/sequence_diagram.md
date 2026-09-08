@@ -86,7 +86,7 @@ sequenceDiagram
         RSH-->>CCS: campaignIds
 
         loop for each campaignId - processClaimCheck
-            loop while ZCARD claim_campaign_priority_set#campaignId > 0
+            loop while ZCARD claim_campaign_priority_set#{campaignId} > 0
                 CCS->>RD: ZPOPMAX claim_campaign_priority_set#35;campaignId min(zcard, batchSize)
                 RD-->>CCS: tuples of "loyaltyPoints#35;userId"
 
@@ -137,52 +137,93 @@ sequenceDiagram
     participant CC as ClaimController
     participant CCS as ClaimCampaignServiceImpl
     participant RSH as RedisServiceHelper
+    participant RD as Redis
+    participant CCR as ClaimCampaignRepository
     participant CR as CampaignRepository
     participant CUR as CampaignUserRepository
-    participant CCR as ClaimCampaignRepository
     participant MAP as MapperConfig
-    participant ADV as ControllerAdvice
-    participant RD as Redis
     participant PG as Postgres
+    participant ADV as ControllerAdvice
 
     U->>CC: POST /api/v1/claim {campaignId, userId}
-    CC->>CC: @Valid - campaignId and userId not null
-    CC->>CCS: claimCampaign(request)
+    Note over CC: claimDate is @JsonIgnore —<br/>always defaulted to LocalDateTime.now()
 
-    CCS->>RSH: requireUserNotInCampaignMembers(userId, campaignId)
-    RSH->>RD: SISMEMBER campaign_members_set#35;campaignId userId
-    RSH-->CCS: already a member
-    RSH-->>ADV: throws CampaignClaimedAlreadyException
-    ADV-->>U: 400 ErrorResponse
+    alt @Valid fails (campaignId or userId null)
+        CC-->>ADV: MethodArgumentNotValidException
+        ADV-->>U: 400 {field: message}
+    else payload valid
+        CC->>CCS: claimCampaign(request)
 
-    CCS->>RSH: requireCampaignAvailableSeats(campaignId)
-    RSH->>RD: GET campaign_available_seats#35;campaignId
-    RSH-->CCS: not available seats (<= 0)
-    RSH-->>ADV: CampaignNoAvailableSeatsException
-    ADV-->>U: 400 ErrorResponse
+    %% ---- guard 1: already a member ----
+        CCS->>RSH: requireUserNotInCampaignMembers(userId, campaignId)
+        RSH->>RD: SISMEMBER campaign_members_set#35;{campaignId} userId
+        RD-->>RSH: true / false
+        alt user already in members set
+            RSH-->>ADV: CampaignClaimedAlreadyException
+            ADV-->>U: 400 "The user has claimed the campaign already."
+        else not a member
+        %% ---- guard 2: seats available ----
+            CCS->>RSH: requireCampaignAvailableSeats(campaignId)
+            RSH->>RD: GET campaign_available_seats#35;{campaignId}
+            RD-->>RSH: remainingSeats (or null)
+            alt remainingSeats null or <= 0
+                RSH-->>ADV: CampaignNoAvailableSeatsException
+                ADV-->>U: 400 "No available seats for the campaign id ..."
+            else seats available
+            %% ---- idempotent short-circuit ----
+                CCS->>CCR: findByUserIdAndCampaignId(userId, campaignId)
+                CCR->>PG: SELECT * FROM claim_campaign<br/>WHERE user_id = ? AND campaign_id = ?
+                PG-->>CCR: row / empty
+                alt claim already exists
+                    CCS->>MAP: toDTO(existing)
+                    MAP-->>CCS: ClaimCampaignDTO
+                    CCS-->>CC: existing claim (current status)
+                    CC-->>U: 200 ClaimCampaignDTO
+                    Note over CCS,RD: early return — no INSERT, no ZADD
+                else no claim yet
+                %% ---- referential checks ----
+                    CCS->>CR: findById(campaignId)
+                    CR->>PG: SELECT * FROM campaign WHERE id = ?
+                    alt campaign missing
+                        CCS-->>ADV: NoSuchCampaignException
+                        ADV-->>U: 400 "Campaign not found."
+                    else campaign found
+                        CCS->>CUR: findById(userId)
+                        CUR->>PG: SELECT * FROM campaign_user WHERE id = ?
+                        alt user missing
+                            CCS-->>ADV: NoSuchUserException
+                            ADV-->>U: 400 "User not found"
+                        else user found
+                            CUR-->>CCS: user (loyaltyPoints)
 
-    CCS->>CR: findById(campaignId)
-    CR->>PG: SELECT * FROM campaign WHERE id = ?
-    CR-->CCS: campaign not found
-    CCS-->>ADV: NoSuchCampaignException
-    ADV-->>U: 400 ErrorResponse
+                        %% ---- persist ----
+                            CCS->>CCR: save(ClaimCampaign{status: SUBMITTED})
+                            CCR->>PG: INSERT INTO claim_campaign
+                            PG-->>CCR: generated id
+                            CCR-->>CCS: saved entity
 
-    CCS->>CUR: findById(userId)
-    CUR->>PG: SELECT * FROM campaign_user WHERE id = ?
-    CUR-->CCS: user not found
-    CCS-->>ADV: NoSuchUserException
-    ADV-->>U: 400 ErrorResponse
+                        %% ---- enqueue ----
+                            CCS->>RSH: sendClaimToPriorityQueue(ClaimSubmissionDTO)
+                            RSH->>RD: ZADD claim_campaign_priority_set#35;{campaignId} score member
+                            Note over RSH,RD: score = Long.MAX_VALUE - claimDate.toEpochMilli()<br/>(reversed, so ZPOPMAX yields earliest claim first)<br/>member = "loyaltyPoints#35;userId"
+                            RSH->>RD: SADD claim_campaign_priority_ids_set campaignId
+                            Note over RSH,RD: registers the campaign for the next 5s job sweep
 
-    CCS->>CCR: save(ClaimCampaign status SUBMITTED)
-    CCR->>PG: INSERT INTO claim_campaign
-    
-    CCS->>RSH: sendClaimToPriorityQueue(claimSubmission)
-    RSH->>RD: ZADD claim_campaign_priority_set#35;campaignId score value
-    Note over RSH,RD: score = Long.MAX_VALUE - claimDate epochMilli<br/>value = "loyaltyPoints#35;userId"
-    RSH->>RD: SADD claim_campaign_priority_ids_set campaignId
-    CCS->>MAP: toDTO(saved)
-    CCS-->>CC: ClaimCampaignDTO
-    CC-->>U: 200 status SUBMITTED
+                            CCS->>MAP: toDTO(saved)
+                            MAP-->>CCS: ClaimCampaignDTO
+                            CCS-->>CC: ClaimCampaignDTO
+                            CC-->>U: 200 status = SUBMITTED
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    opt any unhandled exception
+        CCS-->>ADV: Exception
+        ADV-->>U: 500 "An unexpected error occurred on the server."
+    end
 ```
 
 ## 4. `GET /api/v1/claim?userId=&campaignId=` - User polls the claim campaign status
