@@ -29,7 +29,7 @@ public class CacheManager {
         this.redisServiceHelper = redisServiceHelper;
     }
 
-    @Scheduled(fixedRate = 60000) //Trigger every minute
+    @Scheduled(fixedRate = 5000) //Trigger every 5s
     public void refreshRedisCache(){
         long start = System.currentTimeMillis();
         for (var campaign : campaignRepository.findAll()) {

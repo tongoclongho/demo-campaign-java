@@ -95,10 +95,10 @@ public class ClaimCampaignServiceImpl implements ClaimCampaignService {
 
 
     /**
-     * Trigger every 5 seconds is to check if any claim submitted
+     * Trigger every second is to check if any claim submitted
      *
      */
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRate = 1000)
     protected void executeClaimCampaignSubmission() {
         long start = System.currentTimeMillis();
         List<Long> campaignIds = redisServiceHelper.getCampaignIdsForClaimCheck();
