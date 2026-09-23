@@ -9,16 +9,16 @@ Design and implement a Spring Boot service that allows users to claim a unique v
    ○ Input: userId, campaignId.
    ○ Constraints: One user can only claim one voucher per campaign. No "overselling" (if capacity is 5,000, the 5,001st person must fail).
 
-   3. The Priority Logic (Algorithm): Each user has a loyaltyPoints attribute (mocked).
-       If requests arrive simultaneously, the system should prioritize users with higher loyalty points.
-       Example: 
-       When: 
-      - Request 1st comes at 2026-09-01 10:00:00 with user point: 100
-      - Request 2nd comes at 2026-09-01 10:00:00 with user point: 101
-      - There is only one available slot for the requested campaign
-       Then: 
-      - 1st -> Rejected
-      - 2nd -> Approved
+3. The Priority Logic (Algorithm): Each user has a loyaltyPoints attribute (mocked).
+    If requests arrive simultaneously, the system should prioritize users with higher loyalty points.
+- Example: 
+  - When: 
+     - Request 1st comes at 2026-09-01 10:00:00 with user point: 100
+     - Request 2nd comes at 2026-09-01 10:00:00 with user point: 101
+     - There is only one available slot for the requested campaign
+  - Then: 
+     - 1st -> Rejected
+     - 2nd -> Approved
 
 ## Technology Stack
 
