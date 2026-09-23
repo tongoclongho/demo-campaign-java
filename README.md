@@ -1,5 +1,25 @@
 # Demo Campaign 
 
+## Statement
+
+Design and implement a Spring Boot service that allows users to claim a unique voucher code from a limited pool.
+
+1. Voucher Campaign Creation: An admin endpoint to create a campaign (e.g., BLACK_FRIDAY) with a specific total capacity (e.g., 5,000 vouchers).
+2. Voucher Claiming: A public endpoint POST /api/v1/claims.
+   ○ Input: userId, campaignId.
+   ○ Constraints: One user can only claim one voucher per campaign. No "overselling" (if capacity is 5,000, the 5,001st person must fail).
+
+   3. The Priority Logic (Algorithm): Each user has a loyaltyPoints attribute (mocked).
+       If requests arrive simultaneously, the system should prioritize users with higher loyalty points.
+       Example: 
+       When: 
+      - Request 1st comes at 2026-09-01 10:00:00 with user point: 100
+      - Request 2nd comes at 2026-09-01 10:00:00 with user point: 101
+      - There is only one available slot for the requested campaign
+       Then: 
+      - 1st -> Rejected
+      - 2nd -> Approved
+
 ## Technology Stack
 
 - **Spring Boot**: 4.0.8
@@ -40,7 +60,18 @@ docker run --name my-redis -p 6379:6379 -d redis
 ./mvnw spring-boot:run          # run the app on :8080
 ```
 
-**Swagger UI**: `http://localhost:8080/swagger-ui/index.html`.
+## Step to verify
+
+### 1. Open Swagger UI: `http://localhost:8080/swagger-ui/index.html`.
+### 2. Try to get list available campaigns via `GET /api/v1/campaign`
+### 3. Try to submit a claim request for a test user via `POST /api/v1/claim`
+### 4. Poll the status of claim request via `GET /api/v1/claim?userId=&campaignId=`
+
+## Technical explanation: 
+The core idea of this project is that use Redis sorted set to pool arriving requests (key:value = reverseTimestamp:userLoyaltyPoint_userId) 
+to ensure the main business requirement:
+- First comes then first served
+- Comes the same time then higher loyalty point served
 
 ## Functional requirements
 
