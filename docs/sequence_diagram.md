@@ -22,7 +22,7 @@ sequenceDiagram
 
 ## 2. Scheduling Jobs
 
-### 1. The `com.demo.campaign.service.CacheManager.refreshRedisCache` runs every 60 seconds to refresh Redis
+### 1. The `com.demo.campaign.service.CacheManager.refreshRedisCache` runs every 5 seconds to refresh Redis
 
 ```mermaid
 sequenceDiagram
@@ -62,7 +62,7 @@ sequenceDiagram
 ```
 
 ### 2. The claim check job ```com.demo.campaign.service.ClaimCampaignServiceImpl.executeClaimCampaignSubmission``` 
-- Runs every 5 seconds
+- Runs every second
 - Turns `SUBMITTED` claims into `APPROVED` or `REJECTED` following in order: claim date -> loyalty points -> user id
 
 ```mermaid

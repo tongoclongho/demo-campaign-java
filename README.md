@@ -60,7 +60,7 @@ docker run --name my-redis -p 6379:6379 -d redis
 ./mvnw spring-boot:run          # run the app on :8080
 ```
 
-## Step to verify
+## Steps to verify
 
 ### 1. Open Swagger UI: `http://localhost:8080/swagger-ui/index.html`.
 ### 2. Try to get list available campaigns via `GET /api/v1/campaign`
