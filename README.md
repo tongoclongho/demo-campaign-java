@@ -80,8 +80,8 @@ to ensure the main business requirement:
 - AppRunner to init redis
 
 ### 2. Scheduling Jobs
-- The `CacheManager.refreshRedisCache` runs every 60s to refresh Redis
-- The ```ClaimCampaignServiceImpl.executeClaimCampaignSubmission``` runs every 5s to check claim submissions
+- The `CacheManager.refreshRedisCache` runs every 5s to refresh Redis
+- The ```ClaimCampaignServiceImpl.executeClaimCampaignSubmission``` runs every 1s to check claim submissions
 
 ### 3. `GET /api/v1/campaign` - Admin gets list of campaigns
 
